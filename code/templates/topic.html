@@ -1,0 +1,41 @@
+{% extends 'layout.html' %} {% block content %}
+<section class="topic-page">
+    <div class="page-header">
+        <h1>{{ page_title }}</h1>
+        <p>{{ page_summary }}</p>
+    </div>
+    
+    <div class="topic-content-grid">
+        <div class="section-left">
+            <div class="content-section">
+                <h2>{{ section1_title }}</h2>
+                <p>{{ section1_text }}</p>
+            </div>
+        </div>
+        
+
+        <div class="section-right">
+            <div class="content-section image-section">
+                <h3>{{ section2_title }}</h3>
+                {% if section2_image %}
+                    <img src="{{ section2_image }}" alt="{{ section2_title }}" class="topic-image">
+                {% else %}
+                    <p class="placeholder">Image coming soon</p>
+                {% endif %}
+            </div>
+            
+            <div class="content-section formula-section">
+                <h3>{{ section3_title }}</h3>
+                <div class="formula-content">
+                    {{ section3_formulas | safe }}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="topic-actions">
+        <a href="/stage{{ stage }}" class="btn secondary-btn">Back to Stage {{ stage }}</a>
+        <a href="/success.html" class="btn">Back to Stages</a>
+    </div>
+</section>
+{% endblock %}

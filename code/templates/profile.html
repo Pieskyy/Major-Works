@@ -1,0 +1,37 @@
+{% extends 'layout.html' %} {% block content %}
+<section class="stage-page topic-page">
+  <div class="page-header">
+    <h1>Profile: {{ username }}</h1>
+    <p>Update your profile picture and bio. You can also enable two-factor authentication from here.</p>
+  </div>
+
+  <div class="content-card">
+    <div class="profile-grid">
+      <div class="profile-avatar">
+        {% if avatar_url %}
+          <img src="{{ avatar_url }}" alt="Avatar" class="qr-code" />
+        {% else %}
+          <div class="qr-code" style="display:flex;align-items:center;justify-content:center;">No avatar</div>
+        {% endif %}
+      </div>
+      <div class="profile-details">
+        <form action="/profile" method="post" enctype="multipart/form-data" class="box">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <label>Change avatar</label>
+          <div class="input__wrapper">
+            <input type="file" name="avatar" accept="image/*" />
+          </div>
+          <label>Bio</label>
+          <div class="input__wrapper">
+            <textarea name="bio" class="input__field" style="min-height:120px">{{ bio }}</textarea>
+          </div>
+          <div class="input__wrapper">
+            <button type="submit" class="btn">Save Profile</button>
+            <a href="{{ url_for('enable_2fa') }}" class="btn secondary-btn">Enable / Verify 2FA</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
