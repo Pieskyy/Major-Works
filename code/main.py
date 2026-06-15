@@ -117,7 +117,7 @@ def add_security_headers(response):
         "default-src 'self'; "
         "script-src 'self'; "
         "style-src 'self'; "
-        "img-src 'self' data:; "
+        "img-src 'self' data: https:; "
         "frame-ancestors 'none'; "
         "form-action 'self';"
     )
