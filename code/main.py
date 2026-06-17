@@ -5,6 +5,7 @@ from io import BytesIO
 import base64
 import threading
 import json
+import html
 import sqlite3 as sql
 
 from flask import Flask, request, session, render_template, redirect, url_for
@@ -14,8 +15,6 @@ from flask_limiter.util import get_remote_address
 import pyotp
 from qrcode import QRCode
 from werkzeug.utils import secure_filename
-
-import user_management as dbHandler
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "database_files", "database.db")
@@ -91,24 +90,6 @@ app.permanent_session_lifetime = timedelta(minutes=30)
 def make_session_permanent():
     session.permanent = True
 
-
-@app.context_processor
-def inject_user_profile():
-    """Injects `user_avatar` and `display_name` into templates when user is logged in."""
-    username = session.get('username')
-    if not username:
-        return {}
-    profiles_dir = os.path.join(os.getcwd(), "database_files", "profiles")
-    profile_path = os.path.join(profiles_dir, f"{username}.json")
-    try:
-        if os.path.exists(profile_path):
-            with open(profile_path, 'r', encoding='utf-8') as pf:
-                data = json.load(pf)
-                avatar = data.get('avatar')
-                return { 'user_avatar': avatar, 'display_name': username }
-    except Exception:
-        pass
-    return { 'user_avatar': None, 'display_name': username }
 # SECURITY HEADERS - Set security headers to mitigate common web vulnerabilities
 @app.after_request
 def add_security_headers(response):
@@ -141,9 +122,8 @@ def sanitize_input(input_str, max_length=255, allow_html=False):
     input_str = input_str.strip()
     
     if not allow_html:
-        # Use HTML escaping for XSS prevention (same as make_web_safe)
-        from hash import make_web_safe
-        input_str = make_web_safe(input_str)
+        # Use HTML escaping for XSS prevention
+        input_str = html.escape(input_str)
     
     return input_str
 
@@ -174,74 +154,42 @@ def welcome():
 
 @app.route("/success.html", methods=["GET"])
 def success():
-    # SECURITY FIX: Ensure user is authenticated before showing stage choices
-    if 'username' not in session:
-        return redirect("/")
     return render_template("success.html")
 
-@app.route("/profile", methods=["GET", "POST"])
-def profile():
-    if 'username' not in session:
-        return redirect("/")
 
-    username = session['username']
-    profiles_dir = os.path.join(os.getcwd(), "database_files", "profiles")
-    os.makedirs(profiles_dir, exist_ok=True)
+@app.route("/search", methods=["GET"])
+def search():
+    query = sanitize_input(request.args.get("q", ""))
+    results = []
+    message = None
 
-    avatar_url = None
-    bio_text = ""
+    if not query:
+        message = "Please enter a search term."
+    else:
+        search_term = f"%{query}%"
+        con = _get_db_connection()
+        cur = con.cursor()
+        cur.execute(
+            "SELECT stage, topic_id AS id, summary FROM topics WHERE title LIKE ? OR summary LIKE ? OR text LIKE ? ORDER BY stage, topic_id",
+            (search_term, search_term, search_term),
+        )
+        rows = cur.fetchall()
+        con.close()
+        results = [
+            {
+                "stage": row["stage"],
+                "id": row["id"],
+                "summary": row["summary"] or "",
+                "name": f"Topic {row['id']}",
+            }
+            for row in rows
+        ]
 
-    profile_path = os.path.join(profiles_dir, f"{username}.json")
-
-    # Load existing profile if present
-    try:
-        import json
-        if os.path.exists(profile_path):
-            with open(profile_path, 'r', encoding='utf-8') as pf:
-                data = json.load(pf)
-                bio_text = data.get('bio', '')
-                avatar = data.get('avatar')
-                if avatar and os.path.exists(os.path.join(os.getcwd(), avatar.lstrip('/'))):
-                    avatar_url = avatar
-    except Exception:
-        pass
-
-    if request.method == 'POST':
-        # Update bio
-        bio = sanitize_input(request.form.get('bio', ''), max_length=2000)
-        # Handle avatar upload (optional)
-        file = request.files.get('avatar')
-        saved_avatar = None
-        if file and file.filename:
-            filename = secure_filename(file.filename)
-            uploads_dir = os.path.join(os.getcwd(), 'static', 'uploads')
-            os.makedirs(uploads_dir, exist_ok=True)
-            # Prefix with username to avoid collisions
-            dest_name = f"{username}_avatar_{filename}"
-            dest_path = os.path.join(uploads_dir, dest_name)
-            file.save(dest_path)
-            # URL path for templates
-            saved_avatar = f"/static/uploads/{dest_name}"
-
-        # Persist profile
-        try:
-            import json
-            data = {'bio': bio, 'avatar': saved_avatar or avatar_url}
-            with open(profile_path, 'w', encoding='utf-8') as pf:
-                json.dump(data, pf)
-            bio_text = bio
-            avatar_url = data.get('avatar')
-        except Exception:
-            pass
-
-    return render_template("profile.html", username=username, bio=bio_text, avatar_url=avatar_url)
+    return render_template("search.html", query=query, results=results, message=message)
 
 
 @app.route("/stage<int:stage>")
 def stage_page(stage):
-    if 'username' not in session:
-        return redirect("/")
-
     stage_content = get_stage(stage)
     if not stage_content:
         return redirect("/success.html")
@@ -252,9 +200,6 @@ def stage_page(stage):
 
 @app.route("/stage<int:stage>/topic/<int:topic_id>")
 def stage_topic(stage, topic_id):
-    if 'username' not in session:
-        return redirect("/")
-
     stage_content = get_stage(stage)
     if not stage_content:
         return redirect("/success.html")
@@ -279,127 +224,72 @@ def stage_topic(stage, topic_id):
     )
 
 
-@app.route("/signup.html", methods=["POST", "GET"])
-def signup():
-    url = request.args.get("url", "")
-    if url not in ALLOWED_REDIRECTS:
-        url = None
-
-    if request.method == "POST":
-        username = request.form.get("username", "")
-        password = request.form.get("password", "")
-        dob = request.form.get("dob", "")
-        
-        # Sanitize inputs to prevent XSS and injection attacks
-        username = sanitize_input(username, max_length=50)
-        dob = sanitize_input(dob, max_length=20)
-        
-        if not username:
-            return render_template("signup.html", error="Username is required.", username=username, dob=dob)
-        if not is_valid_dob(dob):
-            return render_template("signup.html", error="Please enter your date of birth in YYYY-MM-DD format.", username=username, dob=dob)
-
-        try:
-            dbHandler.validate_password(password)  # Password validation
-        except Exception as err:
-            return render_template("weak_password.html", error=str(err), username=username, dob=dob)
-
-        try:
-            dbHandler.insertUser(username, password, dob)
-            return render_template("index.html")
-        except ValueError as err:
-            # Handle username already exists error
-            return render_template("signup_error.html", error=str(err))
-    else:
-        return render_template("signup.html")
-
-
 @app.route("/", methods=["GET"])
 def welcome_root():
     return render_template("welcome.html")
 
 
-@app.route("/login", methods=["POST", "GET"])
-@app.route("/index.html", methods=["POST", "GET"])
+@app.route("/index.html", methods=["GET"])
+def login_page():
+    return render_template("index.html")
+
+
+@app.route("/login", methods=["POST"])
 @limiter.limit("10 per minute")
-def login():
-    url = request.args.get("url", "")
-    if url not in ALLOWED_REDIRECTS:
-        url = None
-
-    if request.method == "POST":
-        username = request.form.get("username", "")
-        password = request.form.get("password", "")
-        
-        # Sanitize inputs to prevent XSS and injection attacks
-        username = sanitize_input(username, max_length=50)
-
-        if dbHandler.retrieveUsers(username, password):
-            session['username'] = username
-
-            existing_secret = dbHandler.getUserTwoFASecret(username)
-            if existing_secret:
-                # User has 2FA enabled, require verification
-                user_secret = existing_secret
-                session['user_secret'] = user_secret
-                return render_template("enable_2fa.html")  # No QR, just verify
-            else:
-                # No 2FA, login directly
-                session['authenticated'] = True
-                return redirect("/success.html")
-        else:
-            return render_template("index.html")
-    else:
-        return render_template("index.html")
-
-
-@app.route("/enable_2fa.html", methods=["POST", "GET"])
 @csrf.exempt
-def enable_2fa():
+def login():
+    username = sanitize_input(request.form.get("username", ""))
+    password = sanitize_input(request.form.get("password", ""))
+
+    if not username or not password:
+        return render_template("index.html", error="Username and password are required.")
+
+    con = _get_db_connection()
+    cur = con.cursor()
+    cur.execute("SELECT password FROM users WHERE username = ?", (username,))
+    row = cur.fetchone()
+    con.close()
+
+    if row and row["password"] == password:
+        session["username"] = username
+        return redirect("/success.html")
+
+    return render_template("index.html", error="Invalid username or password.")
+
+
+@app.route("/signup.html", methods=["GET", "POST"])
+def signup():
+    error = None
+    username = ""
+    dob = ""
+
     if request.method == "POST":
-        otp_input = request.form.get("otp", "")
-        user_secret = session.get("user_secret")
-        username = session.get("username")
+        username = sanitize_input(request.form.get("username", ""))
+        password = sanitize_input(request.form.get("password", ""))
+        dob = sanitize_input(request.form.get("dob", ""))
 
-        if user_secret and username:
-            totp = pyotp.TOTP(user_secret)
-            if totp.verify(otp_input):
-                dbHandler.setUserTwoFASecret(username, user_secret)
-                return redirect("/success.html")
-            else:
-                return "Invalid OTP. Please try again.", 401
+        if not username or not password:
+            error = "Username and password are required."
+        elif not is_valid_dob(dob):
+            error = "Invalid date of birth format."
         else:
-            return "Invalid OTP. Please try again.", 401
+            con = _get_db_connection()
+            cur = con.cursor()
+            cur.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+            if cur.fetchone():
+                error = "Username already exists."
+                con.close()
+            else:
+                cur.execute(
+                    "INSERT INTO users (username, password, dateOfBirth) VALUES (?, ?, ?)",
+                    (username, password, dob),
+                )
+                con.commit()
+                con.close()
+                session["username"] = username
+                return redirect("/success.html")
 
-    return render_template("enable_2fa.html")
-
-
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect("/")
-
-
-@app.route("/setup_2fa")
-def setup_2fa():
-    if 'username' not in session:
-        return redirect("/")
-    username = session['username']
-    existing_secret = dbHandler.getUserTwoFASecret(username)
-    if existing_secret:
-        return "2FA already enabled"
-    user_secret = pyotp.random_base32()
-    session['user_secret'] = user_secret
-    totp = pyotp.TOTP(user_secret)
-    otp_uri = totp.provisioning_uri(name=username, issuer_name="AdamsecurePWA")
-    qr = QRCode()
-    qr.add_data(otp_uri)
-    qr.make(fit=True)
-    stream = BytesIO()
-    qr.make_image(fill='black', back_color='white').save(stream)
-    qr_code_b64 = base64.b64encode(stream.getvalue()).decode('utf-8')
-    return render_template("enable_2fa.html", qr_code=qr_code_b64, secret=user_secret)
-
+    return render_template("signup.html", error=error, username=username, dob=dob)
 
 if __name__ == "__main__":
     app.config["TEMPLATES_AUTO_RELOAD"] = True

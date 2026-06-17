@@ -31,24 +31,11 @@
             <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Real World Maths" />
             <h1>Real World Maths</h1>
             <ul class="topnav">
-                {% if session.get('username') %}
-                    <a href="{{ url_for('success') }}" class="hidden-link">Home</a>
-                    <a href="{{ url_for('logout') }}" class="hidden-link">Logout</a>
-                    <a href="{{ url_for('profile') }}" class="hidden-link profile-link">
-                        {% if user_avatar %}
-                            <img src="{{ user_avatar }}" alt="{{ display_name }}" class="nav-avatar" />
-                        {% else %}
-                            {{ display_name }}
-                        {% endif %}
-                    </a>
-                {% else %}
-                    <a href="/login" class="hidden-link">Login</a>
-                    <a href="/signup.html" class="hidden-link">Signup</a>
-                {% endif %}
+                <a href="/success.html" class="hidden-link">Home</a>
+                <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light and dark mode">🌙</button>
             </ul>
         </nav>
     {% block content %}{% endblock %}
-    <script src="{{ url_for('static', filename='js/serviceWorker.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
