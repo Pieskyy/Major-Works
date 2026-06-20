@@ -159,9 +159,9 @@ def is_valid_dob(value):
 
 
 # ROUTES 
-@app.route("/welcome.html", methods=["GET"])
+@app.route("/index.html", methods=["GET"])
 def welcome():
-    return render_template("welcome.html")
+    return render_template("index.html")
 
 
 @app.route("/success.html", methods=["GET"])
@@ -241,7 +241,7 @@ def stage_topic(stage, topic_id):
 
 @app.route("/", methods=["GET"])
 def welcome_root():
-    return render_template("welcome.html")
+    return render_template("index.html")
 
 
 @app.route("/index.html", methods=["GET"])
