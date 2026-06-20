@@ -40,17 +40,31 @@ def get_stage(stage):
 def get_stage_topics(stage):
     con = _get_db_connection()
     cur = con.cursor()
-    cur.execute("SELECT topic_id FROM topics WHERE stage = ? ORDER BY topic_id", (stage,))
+
+    cur.execute("""
+        SELECT topic_id, title
+        FROM topics
+        WHERE stage = ?
+        ORDER BY topic_id
+    """, (stage,))
+
     rows = cur.fetchall()
     con.close()
-    return [{"id": row["topic_id"], "name": f"Topic {row['topic_id']}"} for row in rows]
+
+    return [
+        {
+            "id": row["topic_id"],
+            "title": row["title"]
+        }
+        for row in rows
+    ]
 
 
 def get_topic(stage, topic_id):
     con = _get_db_connection()
     cur = con.cursor()
     cur.execute(
-        "SELECT title, summary, text, notes, image, formulas "
+        "SELECT title, notes, image, formulas "
         "FROM topics WHERE stage = ? AND topic_id = ?",
         (stage, topic_id),
     )
@@ -59,8 +73,6 @@ def get_topic(stage, topic_id):
     if row:
         return {
             "title": row["title"],
-            "summary": row["summary"] or "",
-            "text": row["text"] or "",
             "notes": row["notes"] or "",
             "image": row["image"] or "",
             "formulas": row["formulas"] or "",
@@ -170,7 +182,12 @@ def search():
         con = _get_db_connection()
         cur = con.cursor()
         cur.execute(
-            "SELECT stage, topic_id AS id, summary FROM topics WHERE title LIKE ? OR summary LIKE ? OR text LIKE ? ORDER BY stage, topic_id",
+            """
+            SELECT stage, topic_id AS id, title
+            FROM topics
+            WHERE title LIKE ? OR notes LIKE ? OR formulas LIKE ?
+            ORDER BY stage, topic_id
+            """,
             (search_term, search_term, search_term),
         )
         rows = cur.fetchall()
@@ -179,8 +196,7 @@ def search():
             {
                 "stage": row["stage"],
                 "id": row["id"],
-                "summary": row["summary"] or "",
-                "name": f"Topic {row['id']}",
+                "title": row["title"]
             }
             for row in rows
         ]
@@ -208,12 +224,11 @@ def stage_topic(stage, topic_id):
     if not db_topic:
         return redirect(f"/stage{stage}")
 
-    notes_text = db_topic.get("notes") or db_topic.get("text", "")
+    notes_text = db_topic.get("notes", "")
     return render_template(
         "topic.html",
         stage=stage,
         page_title=db_topic.get("title"),
-        page_summary=db_topic.get("summary"),
         section1_title="Notes",
         section1_text=notes_text,
         section2_title="Visual Example",

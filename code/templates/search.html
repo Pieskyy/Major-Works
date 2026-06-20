@@ -5,7 +5,7 @@
         {% if query %}
             <p class="page-subtitle">Showing matches for “{{ query }}”.</p>
         {% else %}
-            <p class="page-subtitle">Enter a topic name, summary, or text to search across all stages.</p>
+            <p class="page-subtitle">Enter a topic name or text to search across all stages.</p>
         {% endif %}
 
         {% if message %}
@@ -16,10 +16,9 @@
             <div class="topic-grid">
                 {% for topic in results %}
                     <a href="/stage{{ topic.stage }}/topic/{{ topic.id }}" class="btn topic-card">
-                        <strong>{{ topic.name }}</strong>
-                        <span class="topic-summary"> Stage {{ topic.stage }} · {{ topic.summary }}</span>
+                        <strong>{{ topic.title }}</strong>
                     </a>
-                {% endfor %}
+                {% endfor %}    
             </div>
         {% elif query and not message %}
             <div class="search-results">
