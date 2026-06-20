@@ -1,20 +1,10 @@
 import os
-import secrets
-from datetime import datetime, timedelta
-from io import BytesIO
-import base64
-import threading
-import json
+from datetime import datetime
 import html
 import sqlite3 as sql
-
-from flask import Flask, request, session, render_template, redirect, url_for
+from flask import Flask, request, session, render_template, redirect
 from flask_wtf.csrf import CSRFProtect
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-import pyotp
-from qrcode import QRCode
-from werkzeug.utils import secure_filename
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "database_files", "database.db")
@@ -81,40 +71,7 @@ def get_topic(stage, topic_id):
 
 
 app = Flask(__name__)
-csrf = CSRFProtect(app) # CSRF protection
 
-# SECRET KEY (not really secure but whatever)
-SECRET_KEY = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
-app.secret_key = SECRET_KEY
-
-# RATE LIMITING
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["200 per day", "50 per hour"],
-    storage_uri="memory://"
-)
-
-# SESSION MANAGEMENT - Set session to expire after 30 minutes of inactivity
-app.permanent_session_lifetime = timedelta(minutes=30)
-
-@app.before_request
-def make_session_permanent():
-    session.permanent = True
-
-# SECURITY HEADERS - Set security headers to mitigate common web vulnerabilities
-@app.after_request
-def add_security_headers(response):
-    response.headers['X-Frame-Options'] = 'DENY' # Prevent clickjacking
-    response.headers['Content-Security-Policy'] = ( # CSP to prevent XSS and other injection attacks
-        "default-src 'self'; "
-        "script-src 'self'; "
-        "style-src 'self'; "
-        "img-src 'self' data: https:; "
-        "frame-ancestors 'none'; "
-        "form-action 'self';"
-    )
-    return response
 
 # INPUT SANITIZATION FUNCTION
 def sanitize_input(input_str, max_length=255, allow_html=False):
@@ -140,7 +97,7 @@ def sanitize_input(input_str, max_length=255, allow_html=False):
     return input_str
 
 # URL WHITELIST FOR REDIRECTS
-ALLOWED_REDIRECTS = ["/", "/signup.html", "/success.html"]
+ALLOWED_REDIRECTS = ["/", "/success.html"]
 
 def get_topic_buttons(stage):
     return get_stage_topics(stage)
@@ -247,64 +204,6 @@ def welcome_root():
 @app.route("/index.html", methods=["GET"])
 def login_page():
     return render_template("index.html")
-
-
-@app.route("/login", methods=["POST"])
-@limiter.limit("10 per minute")
-@csrf.exempt
-def login():
-    username = sanitize_input(request.form.get("username", ""))
-    password = sanitize_input(request.form.get("password", ""))
-
-    if not username or not password:
-        return render_template("index.html", error="Username and password are required.")
-
-    con = _get_db_connection()
-    cur = con.cursor()
-    cur.execute("SELECT password FROM users WHERE username = ?", (username,))
-    row = cur.fetchone()
-    con.close()
-
-    if row and row["password"] == password:
-        session["username"] = username
-        return redirect("/success.html")
-
-    return render_template("index.html", error="Invalid username or password.")
-
-
-@app.route("/signup.html", methods=["GET", "POST"])
-def signup():
-    error = None
-    username = ""
-    dob = ""
-
-    if request.method == "POST":
-        username = sanitize_input(request.form.get("username", ""))
-        password = sanitize_input(request.form.get("password", ""))
-        dob = sanitize_input(request.form.get("dob", ""))
-
-        if not username or not password:
-            error = "Username and password are required."
-        elif not is_valid_dob(dob):
-            error = "Invalid date of birth format."
-        else:
-            con = _get_db_connection()
-            cur = con.cursor()
-            cur.execute("SELECT 1 FROM users WHERE username = ?", (username,))
-            if cur.fetchone():
-                error = "Username already exists."
-                con.close()
-            else:
-                cur.execute(
-                    "INSERT INTO users (username, password, dateOfBirth) VALUES (?, ?, ?)",
-                    (username, password, dob),
-                )
-                con.commit()
-                con.close()
-                session["username"] = username
-                return redirect("/success.html")
-
-    return render_template("signup.html", error=error, username=username, dob=dob)
 
 if __name__ == "__main__":
     app.config["TEMPLATES_AUTO_RELOAD"] = True
